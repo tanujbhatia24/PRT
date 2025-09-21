@@ -31,7 +31,7 @@ PRT/
 
 ---
 
-## ⚙Prerequisites
+## Prerequisites
 
 1. **AWS account** with admin/appropriate permissions.
 2. **Terraform 1.0+** installed locally.
