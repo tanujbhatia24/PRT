@@ -12,7 +12,6 @@ PRT/
 │  ├─ main.tf
 │  ├─ variables.tf
 │  ├─ outputs.tf
-│  ├─ providers.tf
 │  └─ versions.tf
 |  └─ terraform.tfvars
 ├─ k8s/                    # Kubernetes manifests
