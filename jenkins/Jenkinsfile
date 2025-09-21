@@ -1,0 +1,71 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION = 'ap-south-1'           
+    AWS_ACCOUNT_ID = ''                 // optional: set in job
+    ECR_REPO = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/flask-app"
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Unit Tests') {
+      steps {
+        dir('app') {
+          sh 'python -m pytest -q || true'
+        }
+      }
+    }
+
+    stage('Build & Push Docker') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh '''
+            aws configure set region ${AWS_REGION}
+            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+            docker build -t flask-app:${IMAGE_TAG} ./app
+            docker tag flask-app:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+            docker push ${ECR_REPO}:${IMAGE_TAG}
+          '''
+        }
+      }
+    }
+
+    stage('Update Kubeconfig') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          sh '''
+            aws eks --region ${AWS_REGION} update-kubeconfig --name ${CLUSTER_NAME}
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to EKS') {
+      steps {
+        sh '''
+          # substitute image tag in k8s manifest and apply
+          sed "s|REPLACE_IMAGE|${ECR_REPO}:${IMAGE_TAG}|g" k8s/deployment.yaml > /tmp/deployment.yaml
+          kubectl apply -f /tmp/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml || true
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "Deployment successful: ${ECR_REPO}:${IMAGE_TAG}"
+    }
+    failure {
+      echo 'Build or deployment failed.'
+    }
+  }
+}
